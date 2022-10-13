@@ -1,0 +1,17 @@
+<!--Шаблон главной страницы-->
+{% extends 'base.html' %}
+{% load thumbnail %}
+
+
+<title>
+  {% block title %}
+    {{title}}
+  {% endblock %}
+</title>
+
+
+{% block content %}
+  {% include 'posts/includes/switcher.html' %}
+  {% include 'posts/includes/post.html' %}
+  {% include 'posts/includes/paginator.html' %}
+{% endblock %}
