@@ -10,7 +10,7 @@ class PostModelTest(TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        cls.author = User.objects.create_user(username='Author')
+        cls.author = User.objects.create_user('Author')
         cls.group = Group.objects.create(
             title='Название группы',
             slug='slug',

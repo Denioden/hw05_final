@@ -13,7 +13,7 @@ from .forms import PostForm, CommentForm
 @cache_page(20)
 def index(request):
     # выводит все объекты  класса POST из models
-    posts = Post.objects.all()
+    posts = Post.objects.all().select_related('author')
     page_obj = create_paginator(posts, request.GET.get('page'))
     # _obj обозначает что переменная содержит объект paginator
     title = 'Последние обновления на сайте'
@@ -173,6 +173,6 @@ def profile_unfollow(request, username):
     user = request.user
     author = get_object_or_404(User, username=username)
     is_follower = Follow.objects.filter(user=user, author=author)
-    if is_follower.exists():
+    if is_follower:
         is_follower.delete()
     return redirect('posts:profile', username=author)

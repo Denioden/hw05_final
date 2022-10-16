@@ -1,32 +1,40 @@
 # posts/tests/test_urls.py
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from posts.models import Group, Post
+from django.conf import settings
 
+import tempfile
+import shutil
+
+from .fixtures.factories import post_create, group_create
 
 User = get_user_model()
 
 
+TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
+
+
+@override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
 class PostURLTests(TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.group = Group.objects.create(
-            title='Название группы',
-            slug='slug',
-            description='Описание группы'
-        )
-        # Создаём авторизованного прльзвателя,
-        # которой не является автором поста.
-        cls.user = User.objects.create_user(username='User')
-        # Сздаём автра поста.
-        cls.author = User.objects.create_user(username='Author')
+        # Создаём изображение
+        cls.image = tempfile.NamedTemporaryFile(suffix=".jpg").name
+        # Создаём пользователя
+        cls.user = User.objects.create_user('User')
+        # Создаём автора поста
+        cls.author = User.objects.create_user('Author')
+        # Создаём группу
+        cls.group = group_create()
         # Создаём пост
-        cls.post = Post.objects.create(
-            text='Текст поста',
-            author=cls.author
-        )
+        cls.post = post_create(cls.author, cls.group, cls.image)
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     # Создаём пользователя гостя и афторизируем пользователя.
     def setUp(self) -> None:

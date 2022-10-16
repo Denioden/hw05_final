@@ -2,57 +2,42 @@ import tempfile
 import shutil
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django import forms
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.cache import cache
 
-from posts.models import Group, Post, Follow
+from posts.models import Post, Follow
 from django.conf import settings
+
+from .fixtures.factories import post_create, group_create, url_rev
 
 User = get_user_model()
 
 
+TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
+
+
+@override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
 class PostURLTests(TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        settings.MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
-        gif = (
-            b'\x47\x49\x46\x38\x39\x61\x02\x00'
-            b'\x01\x00\x80\x00\x00\x00\x00\x00'
-            b'\xFF\xFF\xFF\x21\xF9\x04\x00\x00'
-            b'\x00\x00\x00\x2C\x00\x00\x00\x00'
-            b'\x02\x00\x01\x00\x00\x02\x02\x0C'
-            b'\x0A\x00\x3B'
-        )
-        uploaded = SimpleUploadedFile(
-            name='gif',
-            content=gif,
-            content_type='image/gif'
-        )
-
-        cls.group = Group.objects.create(
-            title='Название группы',
-            slug='slug',
-            description='Описание группы',
-        )
-        cls.user = User.objects.create_user(username='User')
+        # Создаём изображение
+        cls.image = tempfile.NamedTemporaryFile(suffix=".jpg").name
+        # Создаём пользователя
+        cls.user = User.objects.create_user('User')
         # Создаём автора поста
-        cls.author = User.objects.create_user(username='Author')
+        cls.author = User.objects.create_user('Author')
+        # Создаём группу
+        cls.group = group_create()
         # Создаём пост
-        cls.post = Post.objects.create(
-            text='Текст поста',
-            author=cls.author,
-            group=cls.group,
-            image=uploaded
-        )
+        cls.post = post_create(cls.author, cls.group, cls.image)
 
     @classmethod
     def tearDownClass(cls):
         super().tearDownClass()
-        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     def setUp(self) -> None:
         cache.clear()
@@ -69,16 +54,13 @@ class PostURLTests(TestCase):
         user = PostURLTests.user
         post = PostURLTests.post
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
-
         urls = [
-            url('posts:index'),
-            url('posts:group_list', slug=group.slug),
-            url('posts:profile', username=user.username),
-            url('posts:post_detail', post_id=post.id),
-            url('posts:post_edit', post_id=post.id),
-            url('posts:post_create'),
+            url_rev('posts:index'),
+            url_rev('posts:group_list', slug=group.slug),
+            url_rev('posts:profile', username=user.username),
+            url_rev('posts:post_detail', post_id=post.id),
+            url_rev('posts:post_edit', post_id=post.id),
+            url_rev('posts:post_create'),
         ]
 
         templates = [
@@ -100,14 +82,12 @@ class PostURLTests(TestCase):
         index, group_list, profile"""
         group = PostURLTests.group
         post = PostURLTests.post
-
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
+        image = PostURLTests.image
 
         urls = [
-            url('posts:index'),
-            url('posts:group_list', slug=group.slug),
-            url('posts:profile', username=post.author),
+            url_rev('posts:index'),
+            url_rev('posts:group_list', slug=group.slug),
+            url_rev('posts:profile', username=post.author),
         ]
 
         for url_name in urls:
@@ -115,33 +95,28 @@ class PostURLTests(TestCase):
                 response = self.author_client.get(url_name)
                 post = response.context['page_obj'][0]
                 self.assertEqual(post.text, 'Текст поста')
-                self.assertEqual(post.image, 'posts/gif')
+                self.assertEqual(post.image, image)
 
     def test_post_detail_show_contains_post(self):
         """Создав пост (см `setUp`), увидим его на странице /post_detail/"""
         post = PostURLTests.post
-
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
+        image = PostURLTests.image
 
         response = self.author_client.get(
-            url('posts:post_detail', post_id=post.id)
+            url_rev('posts:post_detail', post_id=post.id)
         )
 
         post = response.context['post']
         self.assertEqual(post.text, 'Текст поста')
-        self.assertEqual(post.image, 'posts/gif')
+        self.assertEqual(post.image, image)
 
     def test_post_form_edit_url_contains_post_and_group(self):
         """Шаблоны сформированы с ожидаемым контекстом содержаший form."""
         post = PostURLTests.post
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
-
         urls = [
-            url('posts:post_create'),
-            url('posts:post_edit', post_id=post.id),
+            url_rev('posts:post_create'),
+            url_rev('posts:post_edit', post_id=post.id),
         ]
 
         for url_name in urls:
@@ -161,13 +136,10 @@ class PostURLTests(TestCase):
         group = PostURLTests.group
         post = PostURLTests.post
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
-
         urls = [
-            url('posts:index'),
-            url('posts:group_list', slug=group.slug),
-            url('posts:profile', username=post.author),
+            url_rev('posts:index'),
+            url_rev('posts:group_list', slug=group.slug),
+            url_rev('posts:profile', username=post.author),
         ]
         for url_name in urls:
             with self.subTest(url_name=url_name):
@@ -178,24 +150,27 @@ class PostURLTests(TestCase):
                 self.assertEqual(post.group.title, 'Название группы')
 
 
+@override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
 class PaginatorViewsTest(TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.group = Group.objects.create(
-            title='Название группы',
-            slug='slug',
-            description='Описание группы'
-        )
+
+        # Создаём изображение
+        cls.image = tempfile.NamedTemporaryFile(suffix=".jpg").name
         # Создаём автора поста
-        cls.author = User.objects.create_user(username='Author')
+        cls.author = User.objects.create_user('Author')
+        # Создаём группу
+        cls.group = group_create()
+
         # Создаём 15 постов
         for i in range(15):
-            cls.post = Post.objects.create(
-                text=f'Текст поста{i}',
-                author=cls.author,
-                group=cls.group,
-            )
+            cls.post = post_create(cls.author, cls.group, cls.image)
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     # Создаём пользователя гостя и афторизируем пользователя.
     def setUp(self) -> None:
@@ -209,13 +184,10 @@ class PaginatorViewsTest(TestCase):
         group = PaginatorViewsTest.group
         post = PaginatorViewsTest.post
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
-
         urls = [
-            url('posts:index'),
-            url('posts:group_list', slug=group.slug),
-            url('posts:profile', username=post.author),
+            url_rev('posts:index'),
+            url_rev('posts:group_list', slug=group.slug),
+            url_rev('posts:profile', username=post.author),
         ]
         for url_name in urls:
             with self.subTest(urls_name=url_name):
@@ -229,13 +201,10 @@ class PaginatorViewsTest(TestCase):
         group = PaginatorViewsTest.group
         post = PaginatorViewsTest.post
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
-
         urls = [
-            url('posts:index'),
-            url('posts:group_list', slug=group.slug),
-            url('posts:profile', username=post.author),
+            url_rev('posts:index'),
+            url_rev('posts:group_list', slug=group.slug),
+            url_rev('posts:profile', username=post.author),
         ]
         for url_name in urls:
             with self.subTest(url_name=url_name):
@@ -243,18 +212,27 @@ class PaginatorViewsTest(TestCase):
                 self.assertEqual(len(response.context['page_obj']), 5)
 
 
+@override_settings(MEDIA_ROOT=TEMP_MEDIA_ROOT)
 class CacheTest(TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.user = User.objects.create_user(username='User')
+
+        # Создаём изображение
+        cls.image = tempfile.NamedTemporaryFile(suffix=".jpg").name
+        # Создаём пользователя
+        cls.user = User.objects.create_user('User')
         # Создаём автора поста
-        cls.author = User.objects.create_user(username='Author')
+        cls.author = User.objects.create_user('Author')
+        # Создаём группу
+        cls.group = group_create()
         # Создаём пост
-        cls.post = Post.objects.create(
-            text='Текст поста',
-            author=cls.author,
-        )
+        cls.post = post_create(cls.author, cls.group, cls.image)
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
 
     def setUp(self) -> None:
         self.author_client = Client()
@@ -278,16 +256,15 @@ class FollowTest(TestCase):
     def setUpClass(cls) -> None:
         super().setUpClass()
         settings.MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
-        image = tempfile.NamedTemporaryFile(suffix=".jpg").name
-
+        cls.image = tempfile.NamedTemporaryFile(suffix=".jpg").name
+        # Создаём пользователя(подписчик)
         cls.follower = User.objects.create_user(username='follower')
+        # Создаём автора(на кого подписываемся)
         cls.following = User.objects.create_user(username='following')
-
-        cls.post = Post.objects.create(
-            text='Текст поста',
-            author=cls.following,
-            image=image
-        )
+        # Создаём группу
+        cls.group = group_create()
+        # Создаём пост
+        cls.post = post_create(cls.following, cls.group, cls.image)
 
     @classmethod
     def tearDownClass(cls):
@@ -296,9 +273,7 @@ class FollowTest(TestCase):
 
     def setUp(self) -> None:
         cache.clear()
-        # Подписчик(активный пользователь)
         self.follower_client = Client()
-        # автор (На кого подписываемся)
         self.following_client = Client()
 
         self.follower_client.force_login(self.follower)
@@ -321,10 +296,8 @@ class FollowTest(TestCase):
         """Пользователь может подписаться на интересного автора"""
         following = FollowTest.following
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
         self.follower_client.get(
-            url('posts:profile_follow', username=following)
+            url_rev('posts:profile_follow', username=following)
         )
         self.assertEqual(Follow.objects.all().count(), 1)
 
@@ -333,12 +306,10 @@ class FollowTest(TestCase):
         на неинтерсного автора """
         following = FollowTest.following
 
-        def url(url, **kwargs):
-            return reverse(url, kwargs=kwargs)
         self.follower_client.get(
-            url('posts:profile_follow', username=following)
+            url_rev('posts:profile_follow', username=following)
         )
         self.follower_client.get(
-            url('posts:profile_unfollow', username=following)
+            url_rev('posts:profile_unfollow', username=following)
         )
         self.assertEqual(Follow.objects.all().count(), 0)
